@@ -11,3 +11,6 @@ keywords = ["bitbuffer", "memory", "packed", "varint", "compact"]
 description = "Unsigned N-bit Buffer: A structure that holds a fixed buffer of `bits`-sized unsigned integer elements."
 repository = "https://github.com/Longor1996/unthbuf"
 documentation = "https://docs.rs/unthbuf/"
+
+[dev-dependencies]
+rand = "0.8.5"
