@@ -8,7 +8,8 @@ The `UnthBuf` is a structure that stores a given fixed amount of unsigned intege
 For example:
 
 ```rust
-let buf = UnthBuf::<true>::new(4096, 5);
+use unthbuf::UnthBuf;
+let mut buf = UnthBuf::<true>::new(4096, 5);
 buf.set(21, 5).unwrap();
 ```
 
