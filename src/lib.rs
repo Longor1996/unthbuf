@@ -16,6 +16,12 @@ pub struct UnthBuf<const ALIGNED: bool = true> {
     
     /// Mask of bits covering a single element.
     pub(crate) mask: usize,
+    
+    /// Elements per cell.
+    /// 
+    /// - When   aligned, this is an exact number.
+    /// - When unaligned, this number is inexact.
+    pub(crate) elpc: u8,
 }
 
 impl<const ALIGNED: bool> UnthBuf<ALIGNED> {
@@ -54,12 +60,14 @@ impl<const ALIGNED: bool> UnthBuf<ALIGNED> {
         let size = UnthBuf::size_from_capacity_and_bits(capacity, bits, ALIGNED);
         let data = vec![0; size].into_boxed_slice();
         let mask = UnthBuf::mask_from_bits(bits);
+        let elpc = UnthBuf::BITS_PER_CELL / bits;
         
         Self {
             capacity,
             data,
             bits,
             mask,
+            elpc,
         }
     }
     
@@ -212,13 +220,13 @@ impl<const ALIGNED: bool> UnthBuf<ALIGNED> {
     
     /// Returns the *location* of the cell, the *bit-offset* within it and a *mask*,
     /// for the element at the given index.
+    #[inline(always)]
     pub(crate) fn aligned_location_of(&self, index: usize) -> UnthBufAlignedLocation {
         //if !self.is_index(index) {eprintln!("index {index} is out of bounds; {:?}", self)}
-        let elements_per_cell = get_aligned_elements_per_cell(self.bits);
-        let cell = get_aligned_cellindex(index, elements_per_cell);
+        let cell = index / (self.elpc as usize);
         //if !self.is_cell(cell) {eprintln!("index-{index} / cell-{cell} (E={elements_per_cell}) is outside the bounds of {:?}", self)}
-        let offset = get_aligned_element_offset(index, elements_per_cell, self.bits);
-        let mask = get_aligned_element_mask(self.mask, offset);
+        let offset = (index % self.elpc as usize) as u8 * self.bits;
+        let mask = self.mask << offset;
         UnthBufAlignedLocation {
             cell, offset, mask
         }
@@ -226,6 +234,7 @@ impl<const ALIGNED: bool> UnthBuf<ALIGNED> {
     
     /// Returns the *location* of the first cell, the *bit-offsets* within it and *two masks*,
     /// for the element at the given index.
+    #[inline(always)]
     pub(crate) fn unaligned_location_of(&self, index: usize) -> UnthBufUnalignedLocation {
         //if !self.is_index(index) {eprintln!("index {index} is out of bounds; {:?}", self)}
         let bitindex = get_unaligned_bitindex(index, self.bits);
