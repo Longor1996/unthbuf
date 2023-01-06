@@ -1,7 +1,10 @@
 #![doc = include_str!("../README.md")]
 #[deny(missing_docs)]
 
+mod iter;
 mod fmt;
+
+pub use iter::*;
 pub use fmt::*;
 /// A structure that holds a fixed buffer of `bits`-sized unsigned integer elements.
 /// 
@@ -98,10 +101,6 @@ impl<const ALIGNED: bool> UnthBuf<ALIGNED> {
         &mut self.data
     }
     
-    /// Returns an iterator that yields all elements contained in this buffer.
-    pub fn iter(&self) -> impl std::iter::Iterator<Item = usize> + '_ {
-        // Safety Notice: Since `get_indices` will always be within bounds, this is safe.
-        self.get_indices().map(|index| unsafe { self.get_unchecked(index) })
     }
     
     /// Checks if the given value can be stored in this buffer.
@@ -265,17 +264,6 @@ impl<const ALIGNED: bool> UnthBuf<ALIGNED> {
 //     }
 // }
 
-impl<const ALIGNED: bool> IntoIterator for UnthBuf<ALIGNED> {
-    type Item = usize;
-    
-    type IntoIter = std::iter::Map<std::ops::Range<usize>, Box<dyn FnMut(usize) -> usize>>;
-    
-    fn into_iter(self) -> Self::IntoIter {
-        let indices = self.get_indices();
-        let iter = Box::new(move |index| unsafe {self.get_unchecked(index)});
-        indices.map(iter)
-    }
-}
 impl UnthBuf {
     const BITS_PER_CELL: u8 = usize::BITS as u8;
     
