@@ -3,12 +3,20 @@
 
 mod iter;
 mod fmt;
+mod loc;
 
 pub use iter::*;
 pub use fmt::*;
+pub use loc::*;
+
+mod tests;
+
 /// A structure that holds a fixed buffer of `bits`-sized unsigned integer elements.
 /// 
 /// Note: If the given bit-size is `0`, the internal buffer won't be allocated, and all operations are no-ops.
+/// 
+/// Internally, the [`UnthBuf`] is a boxed slice of **cells**, each holding a set amount of elements.
+#[derive(Clone)]
 pub struct UnthBuf<const ALIGNED: bool = true> {
     /// Capacity of the buffer.
     pub(crate) capacity: usize,
@@ -30,8 +38,26 @@ pub struct UnthBuf<const ALIGNED: bool = true> {
 }
 
 impl<const ALIGNED: bool> UnthBuf<ALIGNED> {
+    
+    /// Creates a new [`UnthBuf`] from the given `ExactSizeIterator` and `bits`-size,
+    /// filling it with all elements from the provided iterator.
+    /// 
+    /// # Panic
+    /// - Panics if the given iterators `len()` returns `0`.
+    pub fn new_from_sized_iter(bits: u8, iter: impl Iterator<Item = usize> + std::iter::ExactSizeIterator) -> Self {
+        let mut new = Self::new(iter.len(), bits);
+        for (idx, val) in new.get_indices().zip(iter) {
+            new.set(idx, val).ok();
+        }
+        
+        new
+    }
+    
     /// Creates a new [`UnthBuf`] with the given `capacity` and `bits`-size,
-    /// filling it with as many elements from the provided as can fit.
+    /// filling it with as many elements from the provided iterator as can fit.
+    /// 
+    /// # Panic
+    /// - Panics if the given `capacity` is `0`.
     pub fn new_from_capacity_and_iter(capacity: usize, bits: u8, iter: impl Iterator<Item = usize>) -> Self {
         let mut new = Self::new(capacity, bits);
         for (idx, val) in new.get_indices().zip(iter) {
@@ -43,6 +69,10 @@ impl<const ALIGNED: bool> UnthBuf<ALIGNED> {
     
     /// Creates a new [`UnthBuf`] with the given `capacity` and `bits`-size,
     /// filling it with the provided `default_value`.
+    /// 
+    /// # Panic
+    /// - Panics if the given `capacity` is `0`.
+    /// - Panics if the given `default_value` does not fit in `bits`.
     pub fn new_with_default(capacity: usize, bits: u8, default_value: usize) -> Self {
         let mut new = Self::new(capacity, bits);
         if !new.fits(default_value) {
@@ -57,6 +87,9 @@ impl<const ALIGNED: bool> UnthBuf<ALIGNED> {
     }
     
     /// Creates a new [`UnthBuf`] with the given `capacity` and `bits`-size, filled with `0`.
+    /// 
+    /// # Panic
+    /// - Panics if the given `capacity` is `0`.
     pub fn new(capacity: usize, bits: u8) -> Self {
         if capacity == 0 {
             panic!("cannot create buffer of 0 capacity")
@@ -65,7 +98,7 @@ impl<const ALIGNED: bool> UnthBuf<ALIGNED> {
         let size = UnthBuf::size_from_capacity_and_bits(capacity, bits, ALIGNED);
         let data = vec![0; size].into_boxed_slice();
         let mask = UnthBuf::mask_from_bits(bits);
-        let elpc = UnthBuf::BITS_PER_CELL / bits;
+        let elpc = UnthBuf::BITS_PER_CELL.checked_div(bits).unwrap_or(0);
         
         Self {
             capacity,
@@ -77,48 +110,81 @@ impl<const ALIGNED: bool> UnthBuf<ALIGNED> {
     }
     
     /// Gets the capacity of this buffer / how many elements are stored within.
+    #[inline(always)]
     pub fn get_capacity(&self) -> usize {
         self.capacity
     }
     
     /// Gets a range of all valid indices of this buffer.
+    #[inline(always)]
     pub fn get_indices(&self) -> std::ops::Range<usize> {
         0..self.capacity
     }
     
-    /// Gets the byte-length of this buffer.
-    pub fn get_byte_len(&self) -> usize {
-        self.data.len() * (usize::BITS/8) as usize
+    /// Gets the total amount of bits stored in this buffer.
+    #[inline(always)]
+    pub fn get_stored_bit_count(&self) -> usize {
+        self.capacity * self.bits as usize
     }
     
-    /// Returns the raw backing buffer.
+    // /// Gets the total amount of stored bytes in this buffer.
+    // pub fn get_stored_byte_count(&self) -> usize {
+    //     (self.capacity * self.bits as usize).div_ceil(8)
+    // }
+    
+    /// Returns a reference to the raw backing buffer of cells.
+    #[inline(always)]
     pub fn raw(&self) -> &[usize] {
         &self.data
     }
     
-    /// Returns the raw backing buffer.
+    /// Returns a mutable reference to the raw backing buffer of cells.
+    #[inline(always)]
     pub fn raw_mut(&mut self) -> &mut [usize] {
         &mut self.data
     }
     
+    /// Gets the length of the backing buffer in bytes.
+    #[inline(always)]
+    pub fn raw_byte_len(&self) -> usize {
+        self.data.len() * (usize::BITS/8) as usize
     }
     
     /// Checks if the given value can be stored in this buffer.
+    #[inline(always)]
     pub fn fits(&self, value: usize) -> bool {
         (value & self.mask) == value
     }
     
-    /// Is the given index valid for this buffer?
+    /// Returns the bitmask that is used to check if elements can fit in this buffer; see [`Self::fits`].
+    #[inline(always)]
+    pub fn get_mask(&self) -> usize {
+        self.mask
+    }
+    
+    /// Returns the bit-size of the individual elements in this buffer.
+    #[inline(always)]
+    pub fn get_bits(&self) -> u8 {
+        self.bits
+    }
+    
+    /// Is the given index (`0..self.capacity`) valid for this buffer?
+    #[inline(always)]
     pub fn is_index(&self, index: usize) -> bool {
         index < self.capacity
     }
     
-    /// Is the given cell-id valid for this buffer?
+    /// Is the given cell-id (`0..self.data.len()`) valid for this buffer?
+    /// 
+    /// i.e.: Does this point inside the *backing buffer*?
+    #[inline(always)]
     pub fn is_cell(&self, cell: usize) -> bool {
         cell < self.data.len()
     }
     
     /// Fills the buffer with the given value.
+    /// 
+    /// Filling with `0` calls [`core::slice::fill`]/memset, which is *very* fast.
     pub fn fill(&mut self, value: usize) {
         if self.bits == 0 {
             return;
@@ -135,21 +201,23 @@ impl<const ALIGNED: bool> UnthBuf<ALIGNED> {
     }
     
     /// Tries to set the element at the given `index` to the provided `value`.
-    pub fn set(&mut self, index: usize, value: usize) -> Result<(),String> {
+    #[inline]
+    pub fn set(&mut self, index: usize, value: usize) -> Result<(),&'static str> {
         if self.bits == 0 {
             return Ok(());
         }
         
-        if !self.fits(value) {return Err(format!("value '{value}' does not fit within {} bit/s", self.bits))}
-        if !self.is_index(index) {return Err(format!("index {index} is out of bounds ({})", self.capacity))}
+        if !self.fits(value) {return Err("value does not fit")}
+        if !self.is_index(index) {return Err("index is out-of-bounds")}
         unsafe {self.set_unchecked(index, value);}
         Ok(())
     }
     
     /// Set the element at the given `index` to the provided `value`, *without* checking bounds.
     /// 
-    /// # Unsafety
-    /// If the index is not within `0..self.capacity`, this function will cause undefined behaviour.
+    /// # Safety
+    /// If the index is not within `0..self.capacity`, testable via [`Self::is_index`], this function will cause undefined behaviour.
+    #[inline(always)]
     pub unsafe fn set_unchecked(&mut self, index: usize, value: usize) {
         if self.bits == 0 {
             return;
@@ -182,19 +250,23 @@ impl<const ALIGNED: bool> UnthBuf<ALIGNED> {
     }
     
     /// Returns the element at the given `index`.
+    /// 
+    /// Out-of-bounds access will return [`Option::None`].
+    #[inline]
     pub fn get(&self, index: usize) -> Option<usize> {
         if self.bits == 0 {
             return Some(0);
         }
         
         if !self.is_index(index) {return None}
-        return Some(unsafe {self.get_unchecked(index)})
+        Some(unsafe {self.get_unchecked(index)})
     }
     
     /// Returns the element at the given `index`, *without* checking bounds.
     /// 
-    /// # Unsafety
+    /// # Safety
     /// If the index is not within `0..self.capacity`, this function will cause undefined behaviour.
+    #[inline(always)]
     pub unsafe fn get_unchecked(&self, index: usize) -> usize {
         match ALIGNED {
             true => {
@@ -216,42 +288,6 @@ impl<const ALIGNED: bool> UnthBuf<ALIGNED> {
                 }
                 low
             }
-        }
-    }
-    
-    /// Returns the *location* of the cell, the *bit-offset* within it and a *mask*,
-    /// for the element at the given index.
-    #[inline(always)]
-    pub(crate) fn aligned_location_of(&self, index: usize) -> UnthBufAlignedLocation {
-        //if !self.is_index(index) {eprintln!("index {index} is out of bounds; {:?}", self)}
-        let cell = index / (self.elpc as usize);
-        //if !self.is_cell(cell) {eprintln!("index-{index} / cell-{cell} (E={elements_per_cell}) is outside the bounds of {:?}", self)}
-        let offset = (index % self.elpc as usize) as u8 * self.bits;
-        let mask = self.mask << offset;
-        UnthBufAlignedLocation {
-            cell, offset, mask
-        }
-    }
-    
-    /// Returns the *location* of the first cell, the *bit-offsets* within it and *two masks*,
-    /// for the element at the given index.
-    #[inline(always)]
-    pub(crate) fn unaligned_location_of(&self, index: usize) -> UnthBufUnalignedLocation {
-        //if !self.is_index(index) {eprintln!("index {index} is out of bounds; {:?}", self)}
-        let bitindex = get_unaligned_bitindex(index, self.bits);
-        let cell = get_unaligned_cellindex_low(bitindex);
-        //if !self.is_cell(cell) {eprintln!("cell {cell} is out of bounds; {:?}", self)}
-        let offset_low = get_unaligned_element_offset_low(bitindex);
-        let offset_high = get_unaligned_element_offset_high(bitindex, self.bits);
-        let mask0 = get_unaligned_element_mask_low(self.mask, offset_low);
-        let mask1 = get_unaligned_element_mask_high(self.mask, offset_low, self.bits);
-        
-        UnthBufUnalignedLocation {
-            cell,
-            offset0: offset_low,
-            offset1: offset_high,
-            mask0,
-            mask1
         }
     }
 }
@@ -291,104 +327,3 @@ impl UnthBuf {
         }
     }
 }
-
-#[inline(always)]
-pub(crate) fn get_aligned_elements_per_cell(bits: u8) -> u8 {
-    UnthBuf::BITS_PER_CELL / bits
-}
-
-#[inline(always)]
-pub(crate) fn get_aligned_cellindex(index: usize, elements_per_cell: u8) -> usize {
-    index / (elements_per_cell as usize)
-}
-
-#[inline(always)]
-pub(crate) fn get_aligned_element_offset(index: usize, elements_per_cell: u8, bits: u8) -> u8 {
-    (index % elements_per_cell as usize) as u8 * bits
-}
-
-#[inline(always)]
-pub(crate) fn get_aligned_element_mask(mask: usize, offset: u8) -> usize {
-    mask << offset
-}
-
-#[inline(always)]
-pub(crate) fn get_unaligned_bitindex(index: usize, bits: u8) -> usize {
-    index * bits as usize
-}
-
-#[inline(always)]
-pub(crate) fn get_unaligned_cellindex_low(bitindex: usize) -> usize {
-    bitindex / UnthBuf::BITS_PER_CELL as usize
-}
-
-#[inline(always)]
-#[allow(dead_code)]
-pub(crate) fn get_unaligned_cellindex_high(bitindex: usize) -> usize {
-    (bitindex / UnthBuf::BITS_PER_CELL as usize) + 1
-}
-
-#[inline(always)]
-pub(crate) fn get_unaligned_element_offset_low(bitindex: usize) -> u8 {
-    (bitindex % UnthBuf::BITS_PER_CELL as usize) as u8
-}
-
-#[inline(always)]
-pub(crate) fn get_unaligned_element_offset_high(bitindex: usize, bits: u8) -> u8 {
-    ((bitindex + bits as usize) % UnthBuf::BITS_PER_CELL as usize) as u8
-}
-
-#[inline(always)]
-pub(crate) fn get_unaligned_element_mask_low(mask: usize, offset_low: u8) -> usize {
-    mask << offset_low as usize
-}
-
-#[inline(always)]
-pub(crate) fn get_unaligned_element_mask_high(mask: usize, offset_low: u8, bits: u8) -> usize {
-    if (offset_low + bits) <= usize::BITS as u8 {
-        0
-    } else {
-        mask >> (usize::BITS - offset_low as u32)
-    }
-}
-
-// #[inline(always)]
-// pub(crate) fn get_unaligned_higher_offset(bitindex: usize, bits: u8) -> u32 {
-//     let offset = get_unaligned_element_offset_low(bitindex);
-//     let limit = offset + (bits as u32);
-//     if limit > usize::BITS {
-//         limit - usize::BITS
-//     } else {
-//         0
-//     }
-// }
-
-/// An usize-aligned location of an element.
-pub(crate) struct UnthBufAlignedLocation {
-    cell: usize,
-    offset: u8,
-    mask: usize,
-}
-
-impl std::fmt::Debug for UnthBufAlignedLocation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[#{} <<{} &{:b}]", self.cell, self.offset, self.mask)
-    }
-}
-
-/// An unaligned location of an element.
-pub(crate) struct UnthBufUnalignedLocation {
-    cell: usize,
-    offset0: u8,
-    offset1: u8,
-    mask0: usize,
-    mask1: usize,
-}
-
-impl std::fmt::Debug for UnthBufUnalignedLocation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[#{} <<h{}l{} &h{:b}l{:b}]", self.cell, self.offset1, self.offset0, self.mask1, self.mask0)
-    }
-}
-
-mod tests;

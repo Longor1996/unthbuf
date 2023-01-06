@@ -128,6 +128,7 @@ fn test_indices(rng: &mut rand::prelude::StdRng) -> Vec<usize> {
 }
 
 #[test]
+#[ignore = "benchmark"]
 pub fn bench_io_unaligned() {
     use std::time::Instant;
     use rand::prelude::*;
@@ -171,6 +172,7 @@ pub fn bench_io_unaligned() {
 
 
 #[test]
+#[ignore = "benchmark"]
 pub fn bench_io_aligned() {
     use std::time::Instant;
     use rand::prelude::*;
@@ -216,6 +218,7 @@ pub fn bench_io_aligned() {
 
 
 #[test]
+#[ignore = "benchmark"]
 pub fn bench_io_baseline() {
     use std::time::Instant;
     use rand::prelude::*;
