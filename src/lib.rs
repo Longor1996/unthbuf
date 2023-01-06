@@ -1,6 +1,8 @@
 #![doc = include_str!("../README.md")]
 #[deny(missing_docs)]
 
+mod fmt;
+pub use fmt::*;
 /// A structure that holds a fixed buffer of `bits`-sized unsigned integer elements.
 /// 
 /// Note: If the given bit-size is `0`, the internal buffer won't be allocated, and all operations are no-ops.
