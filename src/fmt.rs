@@ -1,39 +1,40 @@
 //! Formatting for [`UnthBuf`]
-use super::*;
+use super::{UnthBuf, CellLayout};
 
-impl<const ALIGNED: bool> std::fmt::Debug for UnthBuf<ALIGNED> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<CL: CellLayout> core::fmt::Debug for UnthBuf<CL> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         // let max: Box<dyn std::fmt::Debug> = match ALIGNED {
         //     true => Box::new(self.aligned_location_of(self.capacity-1)),
         //     false => Box::new(self.unaligned_location_of(self.capacity-1))
         // };
+        
         f.debug_struct("UnthBuf")
-            .field("aligned", &ALIGNED)
+            .field("layout", &std::any::type_name::<CL>())
             .field("capacity", &self.capacity)
             .field("data_len", &self.data.len())
             .field("bits", &self.bits)
             .field("mask", &self.mask)
-            //.field("last", &max)
+            //.field("data", &self.data)
             .finish()
     }
 }
 
-impl<const ALIGNED: bool> std::fmt::Display for UnthBuf<ALIGNED> {
+impl<CL: CellLayout + 'static> core::fmt::Display for UnthBuf<CL> {
     /// Prints the [`UnthBuf`] as a list of numbers, with the bit-size and capacity at the start...
     /// 
     /// ...thus taking the form: `[uBITS; CAPACITY; ELEMENT, ... ELEMENT]`
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "[")?;
         write!(f, "u{}", self.bits)?;
         write!(f, "; ")?;
         write!(f, "{}", self.capacity)?;
         write!(f, "; ")?;
         let mut comma = false;
-        for element in self.iter() {
+        for element in self {
             if comma {
-                write!(f, ", {}", element)?;
+                write!(f, ", {element}")?;
             } else {
-                write!(f, "{}", element)?;
+                write!(f, "{element}")?;
                 comma = true;
             }
         }

@@ -1,42 +1,63 @@
 //! Iteration for [`UnthBuf`]
-use super::*;
+use crate::{UnthBuf, CellLayout};
+use std::borrow::Cow;
 
-impl<const ALIGNED: bool> UnthBuf<ALIGNED> {
+impl<CL: CellLayout> UnthBuf<CL> {
     /// Returns an iterator that yields all elements contained in this buffer.
-    pub fn iter(&self) -> UnthBufIter<ALIGNED> {
+    pub fn iter(&self) -> UnthBufIter<CL> {
         UnthBufIter {
-            buf: std::borrow::Cow::Borrowed(self),
-            idx: 0
+            idx: 0,
+            cap: self.capacity,
+            buf: Cow::Borrowed(self)
         }
     }
 }
 
-impl<const ALIGNED: bool> IntoIterator for UnthBuf<ALIGNED> {
+impl<'buf, CL: CellLayout + 'static> IntoIterator for &'buf UnthBuf<CL> {
     type Item = usize;
-    type IntoIter = UnthBufIter<'static, ALIGNED>;
+    type IntoIter = UnthBufIter<'buf, CL>;
     
+    /// Creates an iterator from a reference to an [`UnthBuf`].
     fn into_iter(self) -> Self::IntoIter {
         UnthBufIter {
-            buf: std::borrow::Cow::Owned(self),
             idx: 0,
+            cap: self.capacity,
+            buf: Cow::Borrowed(self)
         }
     }
 }
 
-/// Iterator over an UnthBuf
-pub struct UnthBufIter<'b, const ALIGNED: bool> {
-    /// The [`UnthBuf`] to iterate over.
-    pub(crate) buf: std::borrow::Cow<'b, UnthBuf<ALIGNED>>,
+impl<CL: CellLayout + 'static> IntoIterator for UnthBuf<CL> {
+    type Item = usize;
+    type IntoIter = UnthBufIter<'static, CL>;
     
-    /// The current index.
-    pub(crate) idx: usize
+    /// Creates an iterator from an [`UnthBuf`], consuming it.
+    fn into_iter(self) -> Self::IntoIter {
+        UnthBufIter {
+            idx: 0,
+            cap: self.capacity,
+            buf: Cow::Owned(self)
+        }
+    }
 }
 
-impl<const ALIGNED: bool> std::iter::Iterator for UnthBufIter<'_, {ALIGNED}> {
+/// Iterator over an [`UnthBuf`]
+pub struct UnthBufIter<'buf, CL: CellLayout + 'static> {
+    /// The [`UnthBuf`] to iterate over.
+    pub(crate) buf: Cow<'buf, UnthBuf<CL>>,
+    
+    /// The current index.
+    pub(crate) idx: usize,
+    
+    /// The maximum index.
+    pub(crate) cap: usize
+}
+
+impl<CL: CellLayout + 'static> core::iter::Iterator for UnthBufIter<'_, CL> {
     type Item = usize;
     
     fn next(&mut self) -> Option<Self::Item> {
-        if ! self.buf.is_index(self.idx) {
+        if ! self.idx < self.cap {
             return None;
         }
         
@@ -52,10 +73,14 @@ impl<const ALIGNED: bool> std::iter::Iterator for UnthBufIter<'_, {ALIGNED}> {
     }
 }
 
-impl<const ALIGNED: bool> std::iter::ExactSizeIterator for UnthBufIter<'_, {ALIGNED}> {
+impl<CL: CellLayout + 'static> core::iter::ExactSizeIterator for UnthBufIter<'_, CL> {
     fn len(&self) -> usize {
         self.buf.capacity - self.idx
     }
+    
+    // fn is_empty(&self) -> bool {
+    //     self.len() == 0
+    // }
 }
 
-impl<const ALIGNED: bool> std::iter::FusedIterator for UnthBufIter<'_, {ALIGNED}> {}
+impl<CL: CellLayout + 'static> core::iter::FusedIterator for UnthBufIter<'_, CL> {}

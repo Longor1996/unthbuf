@@ -1,28 +1,36 @@
 # UnthBuf
 
-> **Note:** While tested and usable, this library is not quite ready;
-> expect breaking changes with any update until `1.0.0`.
-
-The `UnthBuf` is a structure that stores a given fixed amount of unsigned integers, like `Box<[usize]>`... except that the *bit-size* can be freely chosen from `0` to `64` bits, and the alignment of the stored values is a const-generic `bool`, effectively making it a `Box<[uN]>`.
+The `UnthBuf` is a data-structure that holds a fixed buffer of unsigned integers, just like a `Box<[usize]>` would...
+except that the *bit-size* of the integers can be adjusted from `1` to `64` bits, effectively making it a `Box<[uN]>`!
 
 For example:
 
 ```rust
-use unthbuf::UnthBuf;
-let mut buf = UnthBuf::<true>::new(4096, 5);
+use unthbuf::{UnthBuf, Bits, aligned::AlignedLayout};
+let mut buf = UnthBuf::<AlignedLayout>::new(4096, Bits::new(5).unwrap());
 buf.set(21, 5).unwrap();
 ```
 
-Will, if `ALIGNED == true`, result in this bit-pattern:
+Internally the buffer is a boxed slice of `usize`d **cells**,
+with the integer **elements** being stored within the cells
+according to the chosen [`CellLayout`].
+
+This will result in a bit-pattern like this:
 
 ```text
 0101101101101101101101101101101101101101101101101101101101101101
 0000000000000000000000000000000000000000000000000000000000000101
+                            integer aligned to word boundary ^^^
 ```
 
-Or, if `ALIGNED == false`:
+Or, if the `PackedLayout`/[`PackedUnthBuf`] is used instead:
 
 ```text
 1101101101101101101101101101101101101101101101101101101101101101
+^              integer packed across word boundary            vv
 0000000000000000000000000000000000000000000000000000000000000010
 ```
+
+While the `PackedLayout` is certainly more compact, it is also roughly ~20% slower; use it when every bit counts.
+
+You can use the `UnthBuf::get_padding_bit_count`-function to determine how much space is lost.
